@@ -1,19 +1,26 @@
 using System;
 using System.Linq;
 using Game.Domain;
+using MongoDB.Driver;
 
 namespace ConsoleApp
 {
     class Program
     {
+        private readonly IGameTurnRepository gameTurnRepo;
         private readonly IUserRepository userRepo;
         private readonly IGameRepository gameRepo;
         private readonly Random random = new Random();
 
         private Program(string[] args)
         {
-            userRepo = new InMemoryUserRepository();
-            gameRepo = new InMemoryGameRepository();
+            var mongoConnectionString = Environment.GetEnvironmentVariable("PROJECT5100_MONGO_CONNECTION_STRING")
+                                        ?? "mongodb://localhost:27017?maxConnecting=100";
+            var mongoClient = new MongoClient(mongoConnectionString);
+            var db = mongoClient.GetDatabase("game-tests");
+            userRepo = new MongoUserRepository(db);
+            gameRepo = new MongoGameRepository(db);
+            gameTurnRepo = new MongoGameTurnRepository(db);
         }
 
         public static void Main(string[] args)
@@ -125,7 +132,9 @@ namespace ConsoleApp
 
             if (game.HaveDecisionOfEveryPlayer)
             {
-                // TODO: Сохранить информацию о прошедшем туре в IGameTurnRepository. Сформировать информацию о закончившемся туре внутри FinishTurn и вернуть её сюда.
+                var gameTurnEntity = game.FinishTurn();
+                gameTurnRepo.Insert(gameTurnEntity);
+                
                 game.FinishTurn();
             }
 
@@ -180,8 +189,22 @@ namespace ConsoleApp
         private void ShowScore(GameEntity game)
         {
             var players = game.Players;
-            // TODO: Показать информацию про 5 последних туров: кто как ходил и кто в итоге выиграл. Прочитать эту информацию из IGameTurnRepository
-            Console.WriteLine($"Score: {players[0].Name} {players[0].Score} : {players[1].Score} {players[1].Name}");
+            
+            var firstPlayer = players[0];
+            var secondPlayer = players[1];
+
+            Console.WriteLine($"Score: {firstPlayer.Name} {firstPlayer.Score} : {secondPlayer.Score} {secondPlayer.Name}");
+            
+            var lastTurns = gameTurnRepo.GetLastTurns(game.Id, 5);
+            
+            foreach (var lastTurn in lastTurns)
+            {
+                Console.WriteLine($"Turn: {lastTurn.TurnIndex}; " +
+                                  $"{firstPlayer.Name}: {lastTurn.Decisions[firstPlayer.UserId]}; " +
+                                  $"{secondPlayer.Name}: {lastTurn.Decisions[secondPlayer.UserId]}; " +
+                                  $"Winner: {players.Single(x => x.UserId == lastTurn.WinnerId)}");
+                Console.WriteLine($"Score: {players[0].Name} {players[0].Score} : {players[1].Score} {players[1].Name}");
+            }
         }
     }
 }
